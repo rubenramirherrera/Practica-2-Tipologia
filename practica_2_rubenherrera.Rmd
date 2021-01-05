@@ -1,0 +1,661 @@
+---
+title: 'Practica 2 tipologia '
+author: "Ruben Herrera"
+output:
+  pdf_document: default
+  html_notebook: default
+  word_document: default
+---
+## Practica 2
+
+```{r}
+
+#llamamos a todas las bibliotecas que usaremos 
+library(tidyverse)
+library(data.table)
+library (naniar)
+library(dplyr)
+library(gtools)
+library(normtest)
+library(nortest)
+library(plyr)
+library(gridExtra)
+```
+## 1 Descripcion del dataset
+Hemos escogido este dataset que consiste en las ventas de sillitas de niños, que hemos encontrado en Kiggle 
+con ello pretendemos saber cual es la variable que mejor predice las ventas, por lo que combinaremos las variables para hacer un estudio de que variables afectan mas a la variacion de ventas, tambien miraremos si hay diferencia de ventas en estados unidos y fuera, asi como en zonas urbanas y rurales
+vemos que en este caso las muestras estan muy limpios pero he encontrado un dataset que adjuntamos en a carpeta de el mismo tipo de muestras que tiene errores y que vamos a tratar
+
+```{r}
+#data set descargado que esta limpio
+chair_clean <- read.csv(file="Carseats_training.csv", sep = "," ,dec = ".", stringsAsFactors = FALSE)
+#leemos el data set y lo guardamos en chair_clean
+head(chair_clean, 20)
+# vemos una representacion de las 20 primeras filas 
+str(chair_clean)#vemos un resumen de las caracteriticas de cada variable 
+any(is.na(chair_clean)) #vemos que no hay ningun dato NA
+summary(chair_clean$Sales)
+
+```
+```{r}
+#data set sucio, lleno de errores que trataremos, al que llamamos chairs_raw
+chairs_raw <- read.csv(file="ChildCarSeats_brut.csv", sep = ",", dec = ".", stringsAsFactors = FALSE) 
+#indicamos que tenga el punto como separador decimal, 
+#y que los textos los ponga como string y no como factor
+
+head(chairs_raw,20) #visualizamos el resultado 
+
+```
+## 2 Integracion y seleccion de los datos 
+realizamos la lectura del archivo a tratar, donde vemos que hay muchos errores
+lo leemos con el metodo read.csv ya que es un archivo csv delimitado por comas
+Sales y population deberia ser integer, compPrice  deberia ser numeric, income, price, advertising tambien, shelveLoc deberia ser factor. 
+Tambien vemos que algunos tienen el simbolo de euro y otros del dollar, 
+tambien vemos que unos tienen un decimal con coma y otros con puntos, vemos que hay el simbolo k para simbolizar mil, etc, esto puede ser debido a tener diversas fuentes de datos, puede deberse a diferentes sistemas de notacion. 
+
+
+## 3 Limpieza de los datos 
+# 3.0 transformacion de clases y limpieza de elementos 
+Para empezar
+transformaremos los euros a dollares y eliminaremos el simbolo de las varaibles comprice y de Price
+```{r}
+
+#cambiaremos los euros a dollares
+for (i in seq_along(chairs_raw$CompPrice)) {
+#relizamos un for que recorra todos los elementos de comprice 
+  if (str_detect(chairs_raw$CompPrice[i], "EUR")){ 
+#dentro poner un if donde detecte para cada elemento si tiene la palabra eur
+    
+    chairs_raw$CompPrice[i] <- gsub("EUR", "", chairs_raw$CompPrice[i]) 
+#en el caso que la tenga, quitara la palabra eur solo de ese numero 
+    
+    euros <- as.numeric(chairs_raw$CompPrice[i]) 
+#convertiremos a numerico guardado en otra variable llamada euro, 
+#solamente ese numero 
+    euros <- euros*0.82 #realizaremos la operacion de conviertirlo en dolares
+    euros <- as.character(euros) #y volveremos a cambiar a caracter 
+    chairs_raw$CompPrice[i] <- euros}} #introduccimos el resultado 
+
+chairs_raw$CompPrice<- gsub('\\$', "", chairs_raw$CompPrice)
+#como ya no hay euros, solamente quitamos los $
+chairs_raw$CompPrice <- as.integer(chairs_raw$CompPrice) 
+#convertimos todo a integer, asi ya quedan redondeados los decimales 
+head(chairs_raw$CompPrice,20)
+#visualizamos para ver que efectivamente se ha realizado el cambio 
+```
+Realizamos lo mismo para PRICE
+```{r,eval=TRUE,echo=TRUE}
+
+for (i in seq_along(chairs_raw$Price)) {
+  if (str_detect(chairs_raw$Price[i], "EUR")){
+    chairs_raw$Price[i] <- gsub("EUR", "", chairs_raw$Price[i])
+    
+    euros <- as.numeric(chairs_raw$Price[i])
+    euros <- euros*0.82
+    euros <- as.character(euros)
+    chairs_raw$Price[i] <- euros}}
+
+chairs_raw$Price<- gsub('\\$', "", chairs_raw$Price)
+chairs_raw$Price<- as.integer(chairs_raw$Price)
+head(chairs_raw$Price,20)
+#vemos que ha convertido todo a dollares quitando el simbolo
+```
+Ahora tratamos la variable SALES donde vamos a eliminar la letra k, 
+```{r,eval=TRUE,echo=TRUE}
+
+chairs_raw$Sales <- chairs_raw$Sales <- gsub("k", "", chairs_raw$Sales) 
+#usamos la funcion gsub para sustituir el caracter k por nada, 
+chairs_raw$Sales <- as.numeric(chairs_raw$Sales) 
+#pasamos a numeric la columna sales, que ahora mismo es characters
+#tenemos que pasar los NA a 0 ya que sino al recorrer la variable nos da error
+sum(is.na(chairs_raw))
+#vemos que existes 51 NA, y que esta ubicados todos en Sales 
+sapply(chairs_raw, function(x) sum(is.na(x)))
+
+chairs_raw$Sales[is.na(chairs_raw$Sales)] <- 0.01 #cambiamos los NA a ceros
+
+for (i in seq_along(chairs_raw$Income)) { 
+#realizamos un for que recorra todos los elementos y 
+#con el if esocgemos los que son mayores que 1000 a estos los
+#dividimos por 1000 para igualar las notaciones 
+  if (chairs_raw$Sales[i]>1000) {
+    chairs_raw$Sales[[i]] <- chairs_raw$Sales[[i]]/1000}}
+chairs_raw$Sales <- round(chairs_raw$Sales, 2) 
+#mediante la funcion round indicamos que la redondee a 2 decimales
+head(chairs_raw$Sales,20) #mostramos el resultado
+
+```
+tratamos ahora la variable INCOME
+```{r,eval=TRUE,echo=TRUE}
+
+chairs_raw$Income <- gsub("k", "", chairs_raw$Income) 
+#eliminamos las k de la columna Income
+chairs_raw$Income <- gsub("\\.", "", chairs_raw$Income) 
+#tambien eliminamos el punto que le ponemsos \\ 
+#ya que sino indicaria todos los elementos
+chairs_raw$Income <- gsub(",", "", chairs_raw$Income) 
+#eliminamos las comas 
+
+chairs_raw$Income <- as.numeric(chairs_raw$Income) 
+#convertimos los caracteres como numeros para poder operar con ellos 
+for (i in seq_along(chairs_raw$Income)) { 
+  #realizamos un for que recorra todos los elementos y con el
+  #if escogemos los que son mayores que 1000 a estos los dividimos 
+  #por 1000 para igualar las notaciones 
+  if (chairs_raw$Income[i]>1000) {
+    chairs_raw$Income[[i]] <- chairs_raw$Income[[i]]/1000}}
+chairs_raw$Income <- trunc(chairs_raw$Income) 
+#truncamos el resultado dejando en enteros si hay algun decimal
+head(chairs_raw$Income,20) 
+#mostramos el resultado 
+```
+tratamos  POPULATION
+```{r,eval=TRUE,echo=TRUE}
+
+chairs_raw$Population <- gsub("k", "", chairs_raw$Population) 
+#eliminamos las k
+chairs_raw$Population <- gsub(" ", "", chairs_raw$Population) 
+#eliminamos los espacios en blanco que hay 
+chairs_raw$Population <- as.numeric(chairs_raw$Population) 
+#transformamos a numeric
+chairs_raw$Population <- trunc(chairs_raw$Population) 
+#truncamos por si hay decimales 
+head(chairs_raw$Population,20) #vemos el resultado 
+```
+tratamos ADVERTISING
+```{r,eval=TRUE,echo=TRUE}
+
+chairs_raw$Advertising <- as.numeric(chairs_raw$Advertising)
+#pasamos a numeric la variable 
+chairs_raw$Advertising <- chairs_raw$Advertising/1000 
+#dividimos entre mil para que sean miles
+chairs_raw$Advertising <- trunc (chairs_raw$Advertising)
+#truncamos para eliminar los decimales 
+chairs_raw$Advertising <- as.integer(chairs_raw$Advertising) 
+#ahora que esta tratada la convertimos a integer
+head(chairs_raw$Advertising,20) #vemos los primeros 20 resultados 
+class(chairs_raw$Advertising) #vemos la clase 
+```
+vemos que AGE y EDUCATION esta correcta por lo que no tratamos la variable 
+```{r,eval=TRUE,echo=TRUE}
+
+head(chairs_raw$Age,20) 
+#vemos que todo son enteros sin digitos decimales,
+#asi que no realizamos ninguna accion 
+
+
+class(chairs_raw$Education)
+#vemos que es entera, por lo que no requiere más accion 
+```
+ShelveLoc donde cambiamos a factor
+```{r,eval=TRUE,echo=TRUE}
+
+chairs_raw$ShelveLoc <-as.factor(chairs_raw$ShelveLoc) 
+#convertimos a factor ShelveLoc
+class(chairs_raw$ShelveLoc) #vemos que efectivamente es factor
+
+chairs_raw$ShelveLoc <- revalue(chairs_raw$ShelveLoc, c(
+  "1"="Bad", "2"="Medium", "3"="Good"))
+#reasignamos los valores 1 a bad, 2 a medium y 3 a good 
+levels(chairs_raw$ShelveLoc) 
+#vemos que efectivamente se ha realizado el cambio 
+```
+ Urban, vemos que en la variable urban hay disparidad de notacion para la misma informacion , urban escrito en mayusculas o escrito incompleto etc, lo mismo con city 
+ 
+```{r,eval=TRUE,echo=TRUE}
+
+chairs_raw$Urban <- gsub(" ", "", chairs_raw$Urban) 
+#eliminanos los espacios en blanco
+chairs_raw$Urban <- gsub("\\bR\\w+", "rural", chairs_raw$Urban) 
+#todas las palabras que empiezan por R se susituyen completamente por rural
+chairs_raw$Urban <- gsub("\\bU\\w+", "urban", chairs_raw$Urban) 
+#todas las que empiezas por U mayuscula por urban
+chairs_raw$Urban <- gsub("\\bu\\w+", "urban", chairs_raw$Urban) 
+#todas las que empiezan por u por urban, aqui completamos todos los urb etc
+chairs_raw$Urban <- gsub("city", "urban", chairs_raw$Urban) 
+#todas las coincidencias city por urban
+
+chairs_raw$Urban <- as.factor(chairs_raw$Urban) #lo transformamos a factor
+chairs_raw$Urban <- revalue(chairs_raw$Urban, c("urban" ="Yes", "rural"= "No")) 
+#cambiamos las etiquetas
+levels(chairs_raw$Urban)
+ #vemos que solo hay dos niveles 
+```
+US vemos que tambien tiene disparidad de notacion 
+```{r,eval=TRUE,echo=TRUE}
+
+chairs_raw$US <- gsub(" ", "", chairs_raw$US) 
+#eliminanos los espacios en blanco
+chairs_raw$US <- gsub("EUA", "US", chairs_raw$US) 
+#todas las palabras que tiene EUA y se sustituyen por US
+chairs_raw$US <- gsub("USA", "US", chairs_raw$US)
+#todas las palabras que tiene USA y se sustituyen por US
+
+chairs_raw$US <- as.factor(chairs_raw$US) 
+#lo transformamos a factor
+chairs_raw$US <- revalue(chairs_raw$US, c("US" ="Yes", "nonUS"= "No"))
+#cambiamos las etiquetas
+levels(chairs_raw$US)
+#vemos que solo hay dos niveles 
+```
+# 3.1 Valores nulos 
+Encontramos que poniendo si hay algun NA, nos dice si se encuentran, y con la funcion sum nos dice cuantos hay en total
+```{r,eval=TRUE,echo=TRUE}
+any(is.na(chairs_raw)) #nos dice si hay NA 
+sum(is.na(chairs_raw)) #nos dice cuantos hay, no deberia haber ya que hemos cambiado los NA por ceros, cosa que trataremos a continuacion 
+
+```
+# 3.2 valores extremos
+se define como valor atipico leve aquel que dista 1,5 veces el rango intercuartilico por debajo de Q1 o por encima de Q3
+y valor atipico extremo el que dista 3 veces por lo que 
+q3 (9.332) + 3 *IQR (3.774)= 20,642, eliminaremos por tanto todos los valores superiores a este,
+y por abajo sera q1 (5.558) -3 *IQR (3.774)= -5,702 es el valor minimo, como es negativo y el minimo que tenemos es 0, no superaremos el umbral aun asi pondremos NA a los 0 ya que los transformamos al principio del ejercicio para la variable sales 
+```{r,eval=TRUE,echo=TRUE}
+
+hist(chairs_raw$Sales, main = "ventas") 
+#creamos un histograma que nos muestre la frecuencia de ventas
+#vemos que la gran mayoria estan situados de 0 a 200
+chairs_raw$Sales[chairs_raw$Sales == 0.01] <- NA 
+#volvemos a poner los 0.01 por NA, ya que si no nos afectara a nuestros calculos
+summary(chairs_raw$Sales)
+#nos muestra y agrupa por cuartos y su media
+# vemos que si 1st quarter esta en 5.558 y que el 3rd quarter esta en 9.332
+#IQR = Q3 -Q1 = 9.332 - 5.558 = 3.774
+
+
+chairs_raw$Sales[chairs_raw$Sales > 20] <- NA  
+#cambiamos por NA los numeros mayores a 20 
+head(chairs_raw$Sales) #vemos el resultado 
+hist(chairs_raw$Sales, main = "ventas") 
+#volvemos a realizar un histograma pero ahora con los datos corregidos y 
+#vemos que obtenemos una campana de gauss
+summary(chairs_raw$Sales)
+
+
+```
+Consideramos que el archivo esta ya limpio 
+```{r,eval=TRUE,echo=TRUE}
+chairs_net <- chairs_raw 
+head(chairs_net, 20)
+```
+
+Ahora realizamos la sustitucion de valores NA por la media 
+Para ello usamos el chairs_raw poder tratarla sin afectar a la muestra
+
+## 4 Analisis de los datos
+Despues de estudiar los objetivos de las muestras, 
+miraremos si la variable Sales es de distribución normal, 
+para ello realizaremos un contraste de hipotesis 
+donde crearemos una hipotesis nula y una alternativa
+donde:
+H0 : La muestra proviene de una distribución normal 
+H1 : La muestra no proviene de una distribución normal 
+
+El nivel de confianza sera siempre del 95 por ciento por lo que alpha sera 0.05
+y donde 
+si P < Alpha entonces se rechaza H0
+si p >= Alpha entonces no se rechaza H0
+```{r,eval=TRUE,echo=TRUE}
+
+chairs_raw$Sales<-na.replace(chairs_raw$Sales,median(chairs_raw$Sales, na.rm = TRUE))
+
+#remplazamos los NA por  la media de toda la variable Sales
+
+c<-qqnorm(chairs_raw$Sales, 
+        main = "Distribución de residuos para la variable Sales")
+qqline(chairs_raw$Sales, col = 2)
+#realizamos un grafico q-q de residuos para ver la normalidad, vemos
+#que tenemos un quiebro en medio 
+ad.test(chairs_raw$Sales)
+shapiro.test(chairs_raw$Sales)
+lillie.test(chairs_raw$Sales) 
+
+#realizamos 3 diferentes test para comprobar la normalidad
+#y vemos que no cumple la normalidad ya que p value es muy pequeño
+
+  
+
+```
+Probamos ahora sin sustituir los NA por la media, ya que puede distorsionar los resultados Vemos que en este caso la muestra se puede considerar normal ya que en 2 de las 3 pruebas esta por encima de 0.05 y en ad.test esta casi a 0.05
+```{r,eval=TRUE,echo=TRUE}
+delete.na <- function(df, n=0) {
+ df[rowSums(is.na(df)) <= n,]
+}
+chairs_net <- delete.na(chairs_net)
+#eliminamos los NA de la muestra
+
+write.csv(chairs_net, file="chairs_net.csv")
+#guardamos el archivo limpio como csv 
+c<-qqnorm(chairs_net$Sales, 
+        main = "Distribución de residuos para la variable Sales")
+
+
+qqline(chairs_net$Sales, col = 2)
+#realizamos un grafico q-q de residuos para ver la normalidad, vemos
+#que ya no tenemos un quiebro en medio 
+ad.test(chairs_net$Sales)
+shapiro.test(chairs_net$Sales)
+lillie.test(chairs_net$Sales) 
+
+#realizamos 3 diferentes test para comprobar la normalidad
+#y vemos que cumple la normalidad ya que p value es mas grande de 0.05 en 2 de 
+#los tres metodos
+
+```
+Intervalo de confianza
+calculamos la funcion confidence 
+```{r} 
+#creamos la funcion confidence que nos dara el intervalo de confianza de la
+#media poblacional de la variable sales 
+#consideramos que el nivel de confianza sera del 95 por ciento 
+funcion_confidence = function(x) {
+  right = mean(x) + qnorm(.975)*(sd(x))/(sqrt(length(x))) #calculamos los dos 
+  #lados, y sera la media mas el error 
+  left = mean(x) - qnorm(.975)*(sd(x))/(sqrt(length(x))) #en este caso sera 
+  #la media mas el error 
+  print(right) #imprimimos los resultados de ambos lados 
+  print(left)
+  
+}
+funcion_confidence(chairs_net$Sales) #llamamos a la funcion y la comparamos
+#con la funcion t.test, y vemos que son iguales 
+t.test(chairs_net$Sales)
+```
+intervalo de confianza Sales Us y Sales no US
+```{r}
+# reutilizamos la funcion_confidence que hemos realizado anteriormente, 
+# creamos dos subgurpos los que se han vendido en US y los que no 
+
+confi_US= chairs_net[chairs_net$US == "Yes",]
+#llamamos a la funcion con los parametros de ventas de US
+funcion_confidence(confi_US$Sales)
+
+confi_noUS = chairs_net[chairs_net$US == "No",]
+#llamamos a la funcion con los parametros de ventas de US
+funcion_confidence(confi_noUS$Sales)
+#creo que las medias poblacionales de las dos muestras son diferentes, 
+#ya que hay una diferencia del 20 por ciento aproximadamente
+```
+Estudiamos ahora las ventas en US y fuera de US 
+Hipotesis nula y alternativa
+Realizamos la hipotesis nula
+Donde
+H0 : m1 = m2 donde m1 son las ventas en las tiendas de US y m2 las ventas fuera de US
+y la hipotesis alternativa 
+H1 : m1 > m2 
+
+Calculos 
+Puesto que hemos considerado que la muestra tiene una distribucion normal, 
+```{r}
+#determinamos el nivel de significación 
+alpha = 0.05
+#calculamos la desviacion estandar de las dos muestras
+sd_US = sd(confi_US$Sales)
+sd_noUS = sd(confi_noUS$Sales)
+var_US = var(confi_US$Sales)
+var_noUS = var(confi_noUS$Sales)
+#calculamos el tamaño de las muestras
+n_US = nrow(confi_US)
+n_noUS = nrow(confi_noUS)
+#grados de libertad
+v_US = n_US -1
+v_noUS = n_noUS -1
+#calculamos la media de las muestras
+mean_US = mean(confi_US$Sales)
+mean_noUS = mean(confi_noUS$Sales)
+#sumas de cuadrados de diferencias 
+ss_US = sum((confi_US$Sales - mean(confi_US$Sales)^2))
+ss_noUS =  sum((confi_noUS$Sales - mean(confi_noUS$Sales)^2))
+#varianza agrupada
+s2p = (ss_US +ss_noUS)/(v_US + v_noUS)
+#error estandar de la diferencia de medias 
+e_standard = sqrt((var_US/n_US)+(var_noUS/n_noUS))
+#calculamos el estadistico de contraste 
+
+
+z = (mean_US - mean_noUS) / e_standard
+z 
+
+     
+```
+Conclusiones
+```{r}
+#calculamos el p valor usando la funcion pnorm con el estadistico de contraste 
+pValor = 1 - pnorm(z)
+pValor
+
+#comprobamos ahora que usando la funcion test, obtenemos el mismo t, y que
+# obtenemos un resultado del p valor del mismo orden de magnitud, donde podemos
+#ver que es menor que 0.05, por lo que rechazamos la hipotesis nula 
+#y llegamos a la conclusion que las ventas en US son mayores que las ventas
+#fuera
+t.test(confi_US$Sales, confi_noUS$Sales, 
+       alternative = "greater", conf.level = 0.95)
+#por lo que podemos decir que las medias poblacionales calculadas
+# son diferentes   
+```
+Ventas en zonas urbanas y rurales 
+Hipotesis 
+Realizamos la hipotesis nula
+Donde
+H0 : m1 = m2 donde m1 son las ventas en zonas urbanas y m2 las ventas en zonas rurales
+y la hipotesis alternativa 
+H1 : m1 != m2
+
+```{r}
+# reutilizamos la funcion_confidence que hemos realizado anteriormente, 
+# creamos dos subgurpos los que se han vendido en zona urbana  y los que no 
+
+confi_urban= chairs_net[chairs_net$Urban == "Yes",]
+#llamamos a la funcion con los parametros de ventas de US
+funcion_confidence(confi_urban$Sales)
+
+confi_rural = chairs_net[chairs_net$Urban == "No",]
+#llamamos a la funcion con los parametros de ventas de US
+funcion_confidence(confi_rural$Sales)
+#creo que las medias poblacionales de las dos muestras son iguales ya que no 
+#hay casi diferencia y la izquierda de las dos (urbana y rural) son
+#practicamente identicas,
+```
+Puesto que hemos considerado que la muestra tiene una distribucion normal, 
+```{r}
+#determinamos el nivel de significación 
+alpha = 0.05
+#calculamos la desviacion estandar de las dos muestras
+sd_urban = sd(confi_urban$Sales)
+sd_rural = sd(confi_rural$Sales)
+var_urban = var(confi_urban$Sales)
+var_rural = var(confi_rural$Sales)
+#calculamos el tamaño de las muestras
+n_urban = nrow(confi_urban)
+n_rural = nrow(confi_rural)
+#grados de libertad
+v_urban = n_urban -1
+v_rural = n_rural -1
+#calculamos la media de las muestras
+mean_urban = mean(confi_urban$Sales)
+mean_rural = mean(confi_rural$Sales)
+
+#error estandar de la diferencia de medias 
+e_standard = sqrt((var_urban/n_urban)+(var_rural/n_rural))
+#calculamos el estadistico de contraste 
+
+
+z = (mean_urban - mean_rural) / e_standard
+z 
+
+     
+```
+
+```{r}
+#calculamos el p valor usando la funcion pnorm con el estadistico de contraste 
+pValor = 1 - pnorm(z)
+pValor
+
+#otenemos que p value es de 0.822, donde podemos 
+#ver que es mayor que 0.05, por lo que no podemos rechazar la hipotesis 
+#nula, y debemos aceptar que las ventas en zonas urbanas no son diferentes de 
+#las zonas rurales 
+
+```
+Realizaremos ahora estudios para ver la importancia de las variables mediante modelos de regresión lineal
+
+```{r,eval=TRUE,echo=TRUE}
+
+
+# realizamos la regresion lineal por minimos cuadrados de Sales
+#en funcion de Price que significa como cambian las ventas de sillitas
+#por la variacion del precio de venta
+#mediante la funcion lm vemos la ecuacion de la recta
+ventas_precio = lm(chairs_net$Price~chairs_net$Sales)
+summary(ventas_precio)
+
+#usamos la funcion summary para ver los resultados 
+#que aparecen en el estimate , el intercept es la coincidencia en el 0 de 
+#las dos variables lo que en una recta seria la ordenada en el origen , 
+#y el estimate de la variable, indica 
+#la pendiente de la recta.
+#que en este caso es 
+#- 1.55x + 114.3905 lo que indica que tiene pendiente negativa, 
+#a medida que el precio disminuye las ventas suben 
+#aunque es muy poco pronunciada
+# la r^2 que representa la variabilidad observada en la variable, 
+#en este caso es muy baja 0.02
+#lo que significa que no es una variable representativa para el 
+#comportamiento de los precios el p value es significativamente bajo, 
+#considerando que nuestro nivel de confianza, 
+#por lo tanto no aceptable para una p mayor que 0.05,
+#en este caso la p es 0.004, por lo que debemos aceptar el resultado 
+plot(chairs_net$Sales, chairs_net$Price, xlab = "Ventas"
+     , ylab="Precio")
+#representamos un diagrama de dispresion 
+abline(ventas_precio)
+##vemos que la pendiente es negativa, 
+#aunque no se puede ver graficamente que el comportamiento
+#sea estrictamente lineal
+plot(ventas_precio)
+#si realizamos el plot de la regresion lineal, vemos que
+#en el grafico resudiual fitted
+#no vemos ninguna tendencia lo que la homocedasticidad 
+#y la linealidad resultan aceptables
+#en el caso del grafico normal q- q , podemos ver una tendencia lineal 
+#en cierta parte de las muestras
+```
+Realizamos ahora el mismo procedimiento donde estudiaremos las ventas en funcion de los ingresos de los compradores
+```{r,eval=TRUE,echo=TRUE}
+ventas_Ingresos = lm(chairs_net$Income~chairs_net$Sales)
+summary(ventas_Ingresos)
+plot(chairs_net$Sales, chairs_net$Income, xlab = "Ventas"
+     , ylab="Ingresos")
+#representamos un diagrama de dispresion 
+abline(ventas_Ingresos)
+##vemos que la pendiente es positiva, 
+#aunque no se puede ver graficamente que el comportamiento
+#sea estrictamente lineal
+plot(ventas_Ingresos)
+```
+realizareos ahora un Modelo de regresion lineal multiple
+```{r,eval=TRUE,echo=TRUE}
+#estimamos por minimos cuadrados ordinarios un modelo lineal que explique 
+#la variable Sales, en funcion otras
+#realizamos la regresion multiple, donde ponemos a las variables,
+#age, advertising y education para
+##explicar la variacion de las ventas de sillitas
+modelo <- lm(Sales ~ Age + Advertising + Education , data = chairs_net )
+#usamos nuevamente la funcion lm, pero ahora sumaremos las variables explicativas
+summary(modelo) # vemos el resultado
+
+#individualmente el efecto de cada variable se puede ver 
+#en estimate donde cada una de las pendientes
+#dice que si se mantiente constante el resto de variables , 
+#esta por cada unidad que aumenta
+#la variable estudiada varia en tantas unidades como marca la pendiente
+#en este caso
+#age, por cada unidad que aumenta age las ventas de siilitas disminuyen un 0.036 
+#advetising, por cada unidad que aumenta los anuncios ls ventas aumentan 0.139
+#education por cada unidad que aumenta la  el precio disminuye 0.027
+#el r^2 explica la variabilidad del modelo, por lo que a mas
+#variables mayor sera el valor de R^2
+#en este caso vemos que explica el 16 por ciento de la variabilidad
+# R^2 ajustado introduce una penalizacion al valor de R^2 por cada variable 
+#introducida
+#tambien vemos que explica el 16 por ciento. lo que nos da un modelo 
+#de muy baja aceptacion 
+#vemos que el p value es significativo (menor que 1.5 e-13 ) por lo que 
+#se acepta que el modelo no es por azar
+# vemos que individualmente todos los p value llamados Pr,
+#son tambien muy bajos, todos con tres asteriscos menos education 
+# que significa segun la leyenda un numero considerado 0 
+
+
+```
+
+realizamos un modelo mucho mas completo con todas las variables disponibles 
+```{r,eval=TRUE,echo=TRUE}
+#aplicamos el modelo de regresion lineal multiple
+##realizamos lm
+modelo_completo<- lm(Sales ~ Age + Population + Education + ShelveLoc + Advertising 
+                    + US + Urban+ Price + CompPrice, data = chairs_net )
+summary(modelo_completo)
+##vemos que la r^2 ajustada realmente precide el modelo, ya que explica el 79 por ciento de las variaciones,
+#ademas de ver que la contribucion de shelveLoc es fundamental para ver las ventas 
+#por lo que es la variable mas significativa que tenemos 
+#como el p value es muy bajo podemos afirmar que el modelo es aceptable 
+```
+# 5 Representacion grafica 
+```{r,eval=TRUE,echo=TRUE}
+plot(modelo_completo)
+confint(lm(formula = Sales ~ Age + Population + Education + ShelveLoc + Advertising 
+                    + US + Urban+ Price + CompPrice , data = chairs_net))
+
+#realizamos un diagrama de dispersion entre cada una de las variables
+#explicativas y los residuos
+#si la distribucion es lineal los residuos deben distribuirse en torno
+#a 0 con variabilidad constante
+#en el eje x, lo que ocurre con las tres varaibles estudiadas
+plot1 <- ggplot(data = chairs_net, aes(Age, modelo$residuals)) +
+    geom_point() + geom_smooth(color = "firebrick") + geom_hline(yintercept = 0) +
+    theme_bw()
+plot2 <- ggplot(data = chairs_net, aes(Population, modelo$residuals)) +
+    geom_point() + geom_smooth(color = "firebrick")+ geom_hline(yintercept = 0) +
+    theme_bw()
+plot3 <- ggplot(data = chairs_net, aes(Education, modelo$residuals)) +
+    geom_point() + geom_smooth(color = "firebrick") + geom_hline(yintercept = 0) +
+    theme_bw()
+plot4 <- ggplot(data = chairs_net, aes(ShelveLoc, modelo$residuals)) +
+    geom_point() + geom_smooth(color = "firebrick") + geom_hline(yintercept = 0) +
+    theme_bw()
+plot5 <- ggplot(data = chairs_net, aes(Advertising, modelo$residuals)) +
+    geom_point() + geom_smooth(color = "firebrick")+ geom_hline(yintercept = 0) +
+    theme_bw()
+plot6 <- ggplot(data = chairs_net, aes(US, modelo$residuals)) +
+    geom_point() + geom_smooth(color = "firebrick") + geom_hline(yintercept = 0) +
+    theme_bw()
+plot7 <- ggplot(data = chairs_net, aes(Urban, modelo$residuals)) +
+    geom_point() + geom_smooth(color = "firebrick") + geom_hline(yintercept = 0) +
+    theme_bw()
+plot8 <- ggplot(data = chairs_net, aes(Price, modelo$residuals)) +
+    geom_point() + geom_smooth(color = "firebrick")+ geom_hline(yintercept = 0) +
+    theme_bw()
+plot9 <- ggplot(data = chairs_net, aes(CompPrice, modelo$residuals)) +
+    geom_point() + geom_smooth(color = "firebrick") + geom_hline(yintercept = 0) +
+    theme_bw()
+
+grid.arrange(plot1, plot2, plot3,plot4, plot5, plot6,plot7, plot8, plot9)
+```
+# 6 Conclusiones
+Vemos que ShelveLoc que es el tipo de calidad del agarre o abrochado , 
+es lo mas decisivo a la hora de las ventas de sillitas, 
+vemos tambien que la variable sales es normal, 
+
+las ventas en US son mayores que las ventas fuera y no hay distincion entre las ventas en sitios urbanos o rurales
+
+Por desgracia como he comentado anteriormente mi compañera Mariana Tolivar, no ha podido realizar el trabajo por estar muy ocupada, por lo que yo he debido realizar tanto la investigación previa, la redacción de las respuestas y el desarrollo del código 
+
+Contribuciones                        Firma
+..................................................
+Investigación previa                 	R.H
+Redacción de las respuestas	          R.H
+Desarrollo codigo	                    R.H
+
+
